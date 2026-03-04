@@ -9,10 +9,11 @@
     "seed": "ts-node prisma/seed.ts"
   },
   "scripts": {
-    "prebuild": "prisma generate",
-    "build": "prisma generate && tsc -p tsconfig.build.json",
-    "start:prod": "node dist/main.js",
+    "prebuild": "pnpm clean:build && prisma generate",
+    "clean:build": "rm -rf dist tsconfig.build.tsbuildinfo",
+    "build": "tsc -p tsconfig.build.json",
     "migrate:deploy": "prisma migrate deploy",
+    "start:prod": "node dist/main.js",
     "deploy:start": "pnpm migrate:deploy && pnpm start:prod",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
