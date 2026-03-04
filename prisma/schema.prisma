@@ -1,0 +1,349 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RoleName {
+  ADMIN
+  PLANNER
+  STORE
+  CUTTING
+  SUPERVISOR
+  QC
+  SHIPMENT
+  VIEWER
+}
+
+enum POStatus {
+  DRAFT
+  CONFIRMED
+  IN_PRODUCTION
+  SHIPPED
+  CLOSED
+}
+
+enum InventoryTxnType {
+  IN
+  OUT
+  ADJUST
+}
+
+enum InspectionType {
+  INLINE
+  ENDLINE
+  FINAL
+}
+
+model Factory {
+  id        String              @id @default(uuid())
+  name      String
+  code      String              @unique
+  createdAt DateTime            @default(now())
+  users     UserFactoryAccess[]
+  lines     SewingLine[]
+
+  ProductionPlan ProductionPlan[]
+
+  InventoryTxn InventoryTxn[]
+  auditLogs    AuditLog[]
+
+  BOMHeader BOMHeader[]
+
+  Material Material[]
+
+  POItem POItem[]
+
+  PurchaseOrder PurchaseOrder[]
+
+  Style Style[]
+
+  Buyer Buyer[]
+
+  CuttingBatch CuttingBatch[]
+
+  Bundle Bundle[]
+
+  SewingHourlyOutput SewingHourlyOutput[]
+
+  QCInspection QCInspection[]
+
+  PlanLine PlanLine[]
+}
+
+model User {
+  id        String              @id @default(uuid())
+  email     String              @unique
+  name      String
+  password  String
+  role      RoleName            @default(VIEWER)
+  createdAt DateTime            @default(now())
+  access    UserFactoryAccess[]
+  auditLogs AuditLog[]
+}
+
+model UserFactoryAccess {
+  id        String  @id @default(uuid())
+  userId    String
+  factoryId String
+  user      User    @relation(fields: [userId], references: [id])
+  factory   Factory @relation(fields: [factoryId], references: [id])
+
+  @@unique([userId, factoryId])
+}
+
+model Buyer {
+  id        String          @id @default(uuid())
+  factoryId String
+  name      String
+  country   String?
+  createdAt DateTime        @default(now())
+  factory   Factory         @relation(fields: [factoryId], references: [id])
+  pos       PurchaseOrder[]
+}
+
+model Style {
+  id        String     @id @default(uuid())
+  factoryId String
+  styleNo   String
+  name      String?
+  season    String?
+  createdAt DateTime   @default(now())
+  factory   Factory    @relation(fields: [factoryId], references: [id])
+  bom       BOMHeader?
+  poItems   POItem[]
+
+  @@unique([factoryId, styleNo])
+}
+
+model PurchaseOrder {
+  id        String     @id @default(uuid())
+  factoryId String
+  buyerId   String
+  poNo      String
+  status    POStatus   @default(DRAFT)
+  shipDate  DateTime?
+  createdAt DateTime   @default(now())
+  factory   Factory    @relation(fields: [factoryId], references: [id])
+  buyer     Buyer      @relation(fields: [buyerId], references: [id])
+  items     POItem[]
+  planLines PlanLine[]
+
+  @@unique([factoryId, poNo])
+}
+
+model POItem {
+  id            String   @id @default(uuid())
+  factoryId     String
+  poId          String
+  styleId       String
+  color         String
+  sizeBreakdown Json?
+  quantity      Int
+  createdAt     DateTime @default(now())
+
+  po      PurchaseOrder @relation(fields: [poId], references: [id])
+  style   Style         @relation(fields: [styleId], references: [id])
+  factory Factory       @relation(fields: [factoryId], references: [id])
+  bundles Bundle[]
+
+  CuttingBatch CuttingBatch[]
+
+  PlanLine PlanLine[]
+}
+
+model Material {
+  id        String   @id @default(uuid())
+  factoryId String
+  name      String
+  type      String
+  uom       String
+  createdAt DateTime @default(now())
+
+  factory  Factory        @relation(fields: [factoryId], references: [id])
+  bomItems BOMItem[]
+  txns     InventoryTxn[]
+  auditLogs AuditLog[]
+}
+
+model BOMHeader {
+  id        String   @id @default(uuid())
+  factoryId String
+  styleId   String   @unique
+  createdAt DateTime @default(now())
+
+  style   Style     @relation(fields: [styleId], references: [id])
+  items   BOMItem[]
+  factory Factory   @relation(fields: [factoryId], references: [id])
+}
+
+model BOMItem {
+  id          String @id @default(uuid())
+  bomId       String
+  materialId  String
+  consumption Float
+
+  bom      BOMHeader @relation(fields: [bomId], references: [id])
+  material Material  @relation(fields: [materialId], references: [id])
+}
+
+model InventoryTxn {
+  id         String           @id @default(uuid())
+  factoryId  String
+  materialId String
+  type       InventoryTxnType
+  qty        Float
+  refType    String?
+  refId      String?
+  note       String?
+  createdAt  DateTime         @default(now())
+
+  factory  Factory  @relation(fields: [factoryId], references: [id])
+  material Material @relation(fields: [materialId], references: [id])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  factoryId  String
+  userId     String
+  materialId String?
+  action     String
+  entityType String
+  entityId    String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  factory  Factory  @relation(fields: [factoryId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+  material Material? @relation(fields: [materialId], references: [id])
+
+  @@index([factoryId, createdAt])
+  @@index([userId, createdAt])
+  @@index([materialId, createdAt])
+}
+
+model SewingLine {
+  id             String   @id @default(uuid())
+  factoryId      String
+  name           String
+  capacityPerDay Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  factory   Factory              @relation(fields: [factoryId], references: [id])
+  planLines PlanLine[]
+  hourly    SewingHourlyOutput[]
+}
+
+model ProductionPlan {
+  id        String   @id @default(uuid())
+  factoryId String
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  createdAt DateTime @default(now())
+
+  factory Factory    @relation(fields: [factoryId], references: [id])
+  lines   PlanLine[]
+}
+
+model PlanLine {
+  id        String   @id @default(uuid())
+  factoryId String
+  planId    String
+  poId      String
+  poItemId  String
+  lineId    String
+  startDate DateTime
+  endDate   DateTime
+
+  plan    ProductionPlan @relation(fields: [planId], references: [id])
+  po      PurchaseOrder  @relation(fields: [poId], references: [id])
+  poItem  POItem         @relation(fields: [poItemId], references: [id])
+  line    SewingLine     @relation(fields: [lineId], references: [id])
+  targets DailyTarget[]
+  factory Factory        @relation(fields: [factoryId], references: [id])
+}
+
+model DailyTarget {
+  id         String   @id @default(uuid())
+  planLineId String
+  date       DateTime
+  targetQty  Int
+  actualQty  Int      @default(0)
+
+  planLine PlanLine @relation(fields: [planLineId], references: [id])
+
+  @@unique([planLineId, date])
+}
+
+model CuttingBatch {
+  id        String   @id @default(uuid())
+  factoryId String
+  poItemId  String
+  batchNo   String
+  createdAt DateTime @default(now())
+
+  factory Factory  @relation(fields: [factoryId], references: [id])
+  poItem  POItem   @relation(fields: [poItemId], references: [id])
+  bundles Bundle[]
+}
+
+model Bundle {
+  id         String   @id @default(uuid())
+  factoryId  String
+  poItemId   String
+  batchId    String
+  bundleCode String
+  size       String
+  qty        Int
+  status     String   @default("CUT")
+  createdAt  DateTime @default(now())
+
+  factory     Factory              @relation(fields: [factoryId], references: [id])
+  poItem      POItem               @relation(fields: [poItemId], references: [id])
+  batch       CuttingBatch         @relation(fields: [batchId], references: [id])
+  outputs     SewingHourlyOutput[]
+  inspections QCInspection[]
+
+  @@unique([factoryId, bundleCode])
+}
+
+model SewingHourlyOutput {
+  id        String   @id @default(uuid())
+  factoryId String
+  lineId    String
+  bundleId  String?
+  date      DateTime
+  hourSlot  Int
+  qty       Int
+  createdAt DateTime @default(now())
+
+  factory Factory    @relation(fields: [factoryId], references: [id])
+  line    SewingLine @relation(fields: [lineId], references: [id])
+  bundle  Bundle?    @relation(fields: [bundleId], references: [id])
+}
+
+model QCInspection {
+  id        String         @id @default(uuid())
+  factoryId String
+  bundleId  String
+  type      InspectionType
+  pass      Boolean
+  notes     String?
+  createdAt DateTime       @default(now())
+
+  factory Factory    @relation(fields: [factoryId], references: [id])
+  bundle  Bundle     @relation(fields: [bundleId], references: [id])
+  defects QCDefect[]
+}
+
+model QCDefect {
+  id           String @id @default(uuid())
+  inspectionId String
+  defectType   String
+  count        Int
+
+  inspection QCInspection @relation(fields: [inspectionId], references: [id])
+}
