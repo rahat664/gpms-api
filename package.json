@@ -10,7 +10,7 @@
   },
   "scripts": {
     "prebuild": "prisma generate",
-    "build": "nest build",
+    "build": "prisma generate && tsc -p tsconfig.build.json",
     "start:prod": "node dist/main.js",
     "migrate:deploy": "prisma migrate deploy",
     "deploy:start": "pnpm migrate:deploy && pnpm start:prod",
