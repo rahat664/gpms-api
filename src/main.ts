@@ -9,16 +9,14 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
-  const isProduction = configService.get('NODE_ENV') === 'production';
-
-  const frontendOrigins = [
-    configService.getOrThrow<string>('FRONTEND_URL'),
-    'http://localhost:3000',
-  ].filter((origin): origin is string => Boolean(origin));
+  const isProduction = configService.getOrThrow<string>('NODE_ENV') === 'production';
+  const frontendUrl = configService.getOrThrow<string>('FRONTEND_URL');
 
   app.enableCors({
-    origin: frontendOrigins,
+    origin: frontendUrl,
     credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Factory-Id'],
   });
   app.use(
     helmet({
@@ -26,6 +24,8 @@ async function bootstrap() {
     }),
   );
   app.use(cookieParser());
+  app.setGlobalPrefix('api');
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -36,10 +36,12 @@ async function bootstrap() {
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('GPMS API')
+    .setDescription('Garment Production Management System API')
     .setVersion('1.0.0')
+    .addCookieAuth('gpms_access')
     .build();
   const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, swaggerDocument);
+  SwaggerModule.setup('api/docs', app, swaggerDocument);
 
   app.enableShutdownHooks();
 

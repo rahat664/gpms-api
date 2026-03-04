@@ -104,12 +104,10 @@ export class AuthService {
   }
 
   getCookieOptions(): CookieOptions {
-    const isProduction = this.configService.get('NODE_ENV') === 'production';
-
     return {
       httpOnly: true,
-      sameSite: isProduction ? 'none' : 'lax',
-      secure: isProduction,
+      sameSite: 'none',
+      secure: true,
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
     };
