@@ -11,12 +11,29 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const isProduction = configService.getOrThrow<string>('NODE_ENV') === 'production';
   const frontendUrl = configService.getOrThrow<string>('FRONTEND_URL');
+  const allowedOrigins = new Set([
+    frontendUrl,
+    'https://gpms-web664.vercel.app',
+    'http://localhost:3000',
+  ]);
 
   app.enableCors({
-    origin: frontendUrl,
+    origin: (origin, callback) => {
+      // Allow non-browser clients like curl/postman (no Origin header)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.has(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`CORS blocked for origin: ${origin}`), false);
+    },
     credentials: true,
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Factory-Id'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-factory-id'],
+    optionsSuccessStatus: 204,
   });
   app.use(
     helmet({
