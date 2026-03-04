@@ -1,9 +1,10 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { InventoryTxnType } from '@prisma/client';
+import { InventoryTxnType, Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { GetStockQueryDto } from './dto/get-stock-query.dto';
@@ -14,6 +15,8 @@ import {
 
 @Injectable()
 export class InventoryService {
+  private readonly logger = new Logger(InventoryService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async receive(
@@ -43,22 +46,20 @@ export class InventoryService {
         },
       });
 
-      await tx.auditLog.create({
-        data: {
-          factoryId,
-          userId: user.id,
-          materialId: dto.materialId,
-          action: 'INVENTORY_RECEIVE',
-          entityType: 'InventoryTxn',
-          entityId: txn.id,
-          metadata: {
-            txnType: InventoryTxnType.IN,
-            qty: dto.qty,
-            refType: dto.refType,
-            refId: dto.refId ?? null,
-            note: dto.note ?? null,
-            materialName: material.name,
-          },
+      await this.createAuditLogSafely(tx, {
+        factoryId,
+        userId: user.id,
+        materialId: dto.materialId,
+        action: 'INVENTORY_RECEIVE',
+        entityType: 'InventoryTxn',
+        entityId: txn.id,
+        metadata: {
+          txnType: InventoryTxnType.IN,
+          qty: dto.qty,
+          refType: dto.refType,
+          refId: dto.refId ?? null,
+          note: dto.note ?? null,
+          materialName: material.name,
         },
       });
 
@@ -100,23 +101,21 @@ export class InventoryService {
         },
       });
 
-      await tx.auditLog.create({
-        data: {
-          factoryId,
-          userId: user.id,
-          materialId: dto.materialId,
-          action: 'INVENTORY_ISSUE_TO_CUTTING',
-          entityType: 'InventoryTxn',
-          entityId: txn.id,
-          metadata: {
-            txnType: InventoryTxnType.OUT,
-            qty: dto.qty,
-            refType: dto.refType,
-            refId: dto.refId ?? null,
-            note: dto.note ?? null,
-            materialName: material.name,
-            availableStockBeforeIssue: availableStock,
-          },
+      await this.createAuditLogSafely(tx, {
+        factoryId,
+        userId: user.id,
+        materialId: dto.materialId,
+        action: 'INVENTORY_ISSUE_TO_CUTTING',
+        entityType: 'InventoryTxn',
+        entityId: txn.id,
+        metadata: {
+          txnType: InventoryTxnType.OUT,
+          qty: dto.qty,
+          refType: dto.refType,
+          refId: dto.refId ?? null,
+          note: dto.note ?? null,
+          materialName: material.name,
+          availableStockBeforeIssue: availableStock,
         },
       });
 
@@ -217,5 +216,26 @@ export class InventoryService {
       .reduce((sum, entry) => sum + (entry._sum.qty ?? 0), 0);
 
     return inboundQty - outboundQty;
+  }
+
+  private async createAuditLogSafely(
+    tx: Prisma.TransactionClient,
+    data: Prisma.AuditLogUncheckedCreateInput,
+  ) {
+    try {
+      await tx.auditLog.create({ data });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === 'P2021' || error.code === 'P2022')
+      ) {
+        this.logger.warn(
+          `Skipping audit log write due to schema drift (${error.code}): ${error.message}`,
+        );
+        return;
+      }
+
+      throw error;
+    }
   }
 }
