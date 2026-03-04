@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -54,5 +55,11 @@ export class CuttingController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ) {
     return this.cuttingService.findOne(factoryId, id);
+  }
+
+  @ApiOperation({ summary: 'List bundles in the selected factory' })
+  @Get('bundles')
+  listBundles(@FactoryId() factoryId: string, @Query('q') q?: string) {
+    return this.cuttingService.listBundles(factoryId, q);
   }
 }

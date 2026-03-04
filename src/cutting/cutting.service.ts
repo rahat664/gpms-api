@@ -12,6 +12,32 @@ import { generateBundleCode } from './cutting.utils';
 export class CuttingService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async listBundles(factoryId: string, q?: string) {
+    return this.prisma.client.bundle.findMany({
+      where: {
+        factoryId,
+        ...(q
+          ? {
+              OR: [
+                { id: { contains: q, mode: 'insensitive' } },
+                { bundleCode: { contains: q, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        bundleCode: true,
+        size: true,
+        status: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 200,
+    });
+  }
+
   async createBatch(factoryId: string, dto: CreateCuttingBatchDto) {
     await this.ensurePoItemExists(factoryId, dto.poItemId);
 
