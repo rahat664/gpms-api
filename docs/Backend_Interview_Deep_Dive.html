@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GPMS Backend Engineering Deep Dive</title>
+  <style>
+    :root {
+      --ink: #0f172a;
+      --muted: #475569;
+      --line: #cbd5e1;
+      --brand: #0369a1;
+      --soft: #f8fafc;
+      --good: #166534;
+      --warn: #92400e;
+      --bad: #991b1b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #fff;
+      font-family: "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+      line-height: 1.5;
+      font-size: 12pt;
+    }
+    .page {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 38px 46px;
+    }
+    .cover {
+      min-height: 86vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 16px;
+    }
+    h1, h2, h3 { margin: 0 0 10px; line-height: 1.25; }
+    h1 { font-size: 29px; }
+    h2 {
+      margin-top: 30px;
+      font-size: 20px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 7px;
+    }
+    h3 { margin-top: 18px; font-size: 15.5px; }
+    p { margin: 9px 0; }
+    ul, ol { margin: 8px 0 12px 19px; }
+    li { margin: 4px 0; }
+    .tag {
+      display: inline-block;
+      padding: 5px 10px;
+      border-radius: 999px;
+      border: 1px solid #bae6fd;
+      background: #f0f9ff;
+      color: #0c4a6e;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .28px;
+      text-transform: uppercase;
+    }
+    .meta {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 8px 12px;
+      max-width: 770px;
+      font-size: 11.2pt;
+    }
+    .k { color: var(--muted); font-weight: 700; }
+    .muted { color: var(--muted); }
+    .callout {
+      margin: 12px 0;
+      border-left: 4px solid var(--brand);
+      background: var(--soft);
+      padding: 11px 13px;
+    }
+    .callout-good {
+      margin: 12px 0;
+      border-left: 4px solid #22c55e;
+      background: #f0fdf4;
+      padding: 11px 13px;
+    }
+    .callout-warn {
+      margin: 12px 0;
+      border-left: 4px solid #f59e0b;
+      background: #fffbeb;
+      padding: 11px 13px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0;
+      font-size: 11.1pt;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 8px 9px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #f1f5f9;
+      font-weight: 700;
+    }
+    code {
+      font-family: "IBM Plex Mono", "Consolas", monospace;
+      font-size: .92em;
+      background: #f1f5f9;
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+    pre {
+      margin: 10px 0;
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      border-radius: 8px;
+      padding: 12px;
+      white-space: pre-wrap;
+      font-family: "IBM Plex Mono", "Consolas", monospace;
+      font-size: 10.6pt;
+      line-height: 1.4;
+    }
+    .chip {
+      display: inline-block;
+      margin-right: 6px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 10.5pt;
+    }
+    .ok { color: var(--good); border-color: #86efac; background: #f0fdf4; }
+    .warn { color: var(--warn); border-color: #fcd34d; background: #fffbeb; }
+    .bad { color: var(--bad); border-color: #fca5a5; background: #fef2f2; }
+    .break { page-break-before: always; }
+    .small { font-size: 10.8pt; }
+    @media print {
+      .page { padding: 24px 28px; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page cover">
+    <span class="tag">Interview Submission</span>
+    <h1>GPMS Backend Engineering Deep Dive</h1>
+    <p class="muted">Implementation-level analysis of architecture, domain logic, security controls, and delivery quality in the NestJS + Prisma API.</p>
+
+    <div class="meta">
+      <div class="k">Project</div><div>GPMS (Garment Production Management System) - API Service</div>
+      <div class="k">Stack</div><div>NestJS 11, Prisma 7, PostgreSQL, JWT, Swagger, Zod env validation</div>
+      <div class="k">Service Purpose</div><div>Factory-scoped production operations backend across planning, inventory, cutting, sewing, and QC</div>
+      <div class="k">Base Prefix</div><div><code>/api</code></div>
+      <div class="k">Docs Endpoint</div><div><code>/api/docs</code></div>
+      <div class="k">Reference Date</div><div>March 5, 2026</div>
+      <div class="k">Prepared For</div><div>Backend engineering interview review</div>
+    </div>
+
+    <div class="callout small">
+      This report is built from the current codebase, not from assumptions. It focuses on architecture decisions, business invariants, correctness boundaries, and operational maturity.
+    </div>
+  </div>
+
+  <div class="page break">
+    <h2>1. Executive Summary</h2>
+    <p>
+      GPMS API is a multi-factory operations backend. It is designed around strict factory scoping, explicit workflow transitions, and transactional consistency for production-critical actions.
+    </p>
+    <p>
+      The core strength is not just CRUD coverage. The system enforces domain invariants across order lifecycle, planning, cutting, sewing, and QC before permitting final shipment/closure progression.
+    </p>
+
+    <h3>What demonstrates backend depth here</h3>
+    <ul>
+      <li>Global guard chain for authentication, role checks, and factory-level tenancy enforcement.</li>
+      <li>Workflow-heavy service logic with precondition validation before state transitions.</li>
+      <li>Prisma transaction usage for multi-step updates that must remain atomic.</li>
+      <li>DTO + validation constraints at input boundary plus additional semantic checks in services.</li>
+      <li>Operational artifacts: migrations, seed strategy, deploy script, Swagger, and health endpoint.</li>
+    </ul>
+
+    <h3>Codebase scope snapshot</h3>
+    <p>
+      <span class="chip ok">13 controllers</span>
+      <span class="chip ok">13 services</span>
+      <span class="chip ok">21 Prisma models</span>
+      <span class="chip ok">4 enums</span>
+      <span class="chip ok">38 route handlers</span>
+    </p>
+
+    <h3>High-level domain chain supported</h3>
+    <pre>Master Data -> Purchase Order -> Material Requirement -> Inventory -> Plan Assignment -> Cutting Bundles -> Sewing Output -> QC -> PO Shipment/Closure</pre>
+
+    <table>
+      <thead>
+        <tr><th>Domain</th><th>Main Controller</th><th>Backend Responsibility</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Auth and Session</td><td><code>auth.controller.ts</code></td><td>Login/logout/me, token issuance, cookie strategy</td></tr>
+        <tr><td>Master Data</td><td><code>buyers</code>, <code>materials</code>, <code>styles</code></td><td>Factory-scoped reference entities and BOM ownership</td></tr>
+        <tr><td>Orders</td><td><code>pos.controller.ts</code></td><td>PO lifecycle, status movement, requirement derivation</td></tr>
+        <tr><td>Planning</td><td><code>plans.controller.ts</code></td><td>Plan creation and PO-item line assignment</td></tr>
+        <tr><td>Execution</td><td><code>cutting</code>, <code>sewing</code>, <code>qc</code></td><td>Bundle flow, output capture, inspection state</td></tr>
+        <tr><td>Reporting</td><td><code>reports.controller.ts</code></td><td>Plan vs actual aggregation by date and line</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="page break">
+    <h2>2. Application Architecture</h2>
+
+    <h3>2.1 Bootstrap pipeline</h3>
+    <ul>
+      <li>CORS with explicit allowlist plus credential support.</li>
+      <li>Helmet enabled (with non-production cross-origin resource policy relaxation).</li>
+      <li>Cookie parser enabled for JWT cookie extraction.</li>
+      <li>Global prefix <code>/api</code>.</li>
+      <li>Validation pipe with <code>whitelist</code>, <code>transform</code>, <code>forbidNonWhitelisted</code>.</li>
+      <li>Swagger served at <code>/api/docs</code> with cookie auth metadata.</li>
+    </ul>
+
+    <h3>2.2 Module composition</h3>
+    <p><code>AppModule</code> imports:</p>
+    <ul>
+      <li><code>AuthModule</code>, <code>BuyersModule</code>, <code>CuttingModule</code>, <code>InventoryModule</code>, <code>MaterialsModule</code>, <code>PlansModule</code>, <code>PurchaseOrdersModule</code>, <code>QcModule</code>, <code>SewingModule</code>, <code>StylesModule</code>, <code>PrismaModule</code>.</li>
+      <li>Global config validation via Zod schema.</li>
+      <li>Global throttler: 120 requests per 60 seconds.</li>
+    </ul>
+
+    <h3>2.3 Guard chain and request contract</h3>
+    <p>Guards are applied globally in this order:</p>
+    <ol>
+      <li><code>ThrottlerGuard</code></li>
+      <li><code>JwtAuthGuard</code></li>
+      <li><code>RolesGuard</code></li>
+      <li><code>FactoryGuard</code></li>
+    </ol>
+    <p>
+      This means all protected requests must authenticate first, then optionally satisfy role constraints, then satisfy factory access with <code>x-factory-id</code>.
+    </p>
+
+    <h3>2.4 Tenancy and context resolution</h3>
+    <ul>
+      <li><code>FactoryGuard</code> requires <code>x-factory-id</code> unless route is public or explicitly skips factory guard.</li>
+      <li>Header is UUID-validated.</li>
+      <li>Membership enforced through <code>UserFactoryAccess</code> lookup.</li>
+      <li>Resolved factory id is attached to request and used by services.</li>
+    </ul>
+
+    <div class="callout-good">
+      Strong design choice: tenancy is enforced in one place globally, not repeated ad hoc per controller.
+    </div>
+  </div>
+
+  <div class="page break">
+    <h2>3. Security, Auth, and Session Design</h2>
+
+    <h3>3.1 Authentication flow</h3>
+    <ol>
+      <li><code>POST /api/auth/login</code> validates credentials with bcrypt.</li>
+      <li>JWT payload includes user identity and role.</li>
+      <li>Token returned in secure cookie <code>gpms_access</code>.</li>
+      <li><code>GET /api/auth/me</code> returns profile and accessible factories.</li>
+      <li><code>POST /api/auth/logout</code> clears auth cookie.</li>
+    </ol>
+
+    <h3>3.2 Token extraction strategy</h3>
+    <p>JWT strategy accepts token from two sources:</p>
+    <ul>
+      <li>Cookie: <code>gpms_access</code></li>
+      <li>Bearer token: <code>Authorization: Bearer ...</code></li>
+    </ul>
+    <p>This dual-path strategy improves interoperability with browser and non-browser clients.</p>
+
+    <h3>3.3 Cookie policy</h3>
+    <p>Cookie options are strict:</p>
+    <ul>
+      <li><code>httpOnly: true</code></li>
+      <li><code>sameSite: "none"</code></li>
+      <li><code>secure: true</code></li>
+      <li>7-day max age</li>
+    </ul>
+
+    <h3>3.4 Security strengths and caveats</h3>
+    <table>
+      <thead>
+        <tr><th>Area</th><th>Current Implementation</th><th>Observation</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Input validation</td>
+          <td>Global validation pipe + DTO decorators</td>
+          <td>Strong baseline for request hygiene</td>
+        </tr>
+        <tr>
+          <td>Auth/session</td>
+          <td>JWT cookie + bearer fallback</td>
+          <td>Good compatibility model</td>
+        </tr>
+        <tr>
+          <td>Rate limit</td>
+          <td>Global throttler</td>
+          <td>Useful coarse protection layer</td>
+        </tr>
+        <tr>
+          <td>Role controls</td>
+          <td><code>@Roles</code> decorator infrastructure exists</td>
+          <td>No active <code>@Roles(...)</code> usage found in controllers, so role guard currently does not enforce endpoint-level role restrictions</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout-warn">
+      Interview discussion point: role primitives exist, but policy is mostly enforced in business logic (for example PO status progression for non-admin) rather than endpoint annotations. This is valid, but should be explicit in security design docs.
+    </div>
+  </div>
+
+  <div class="page break">
+    <h2>4. Data Model and Persistence Strategy</h2>
+
+    <h3>4.1 Prisma model design</h3>
+    <p>The schema models a realistic garment operations graph:</p>
+    <ul>
+      <li>Access/tenancy: <code>User</code>, <code>Factory</code>, <code>UserFactoryAccess</code></li>
+      <li>Commercial: <code>Buyer</code>, <code>PurchaseOrder</code>, <code>POItem</code>, <code>Style</code></li>
+      <li>Materials: <code>Material</code>, <code>BOMHeader</code>, <code>BOMItem</code>, <code>InventoryTxn</code></li>
+      <li>Execution: <code>ProductionPlan</code>, <code>PlanLine</code>, <code>DailyTarget</code>, <code>CuttingBatch</code>, <code>Bundle</code>, <code>SewingHourlyOutput</code>, <code>QCInspection</code>, <code>QCDefect</code></li>
+      <li>Governance: <code>AuditLog</code></li>
+    </ul>
+
+    <h3>4.2 Enum-backed state systems</h3>
+    <ul>
+      <li><code>RoleName</code> for user responsibility classes.</li>
+      <li><code>POStatus</code> for lifecycle progression.</li>
+      <li><code>InventoryTxnType</code> for stock movement semantics.</li>
+      <li><code>InspectionType</code> for QC stage typing.</li>
+    </ul>
+
+    <h3>4.3 Key relational constraints</h3>
+    <ul>
+      <li><code>@@unique([factoryId, poNo])</code> prevents duplicate PO numbers per factory.</li>
+      <li><code>@@unique([factoryId, styleNo])</code> prevents duplicate styles per factory.</li>
+      <li><code>@@unique([factoryId, bundleCode])</code> enforces bundle code uniqueness.</li>
+      <li><code>@@unique([planLineId, date])</code> enforces one target per plan line date.</li>
+      <li><code>@@unique([userId, factoryId])</code> for access relation integrity.</li>
+    </ul>
+
+    <h3>4.4 Migration and seed posture</h3>
+    <ul>
+      <li>Migrations present: <code>init</code> and <code>add_audit_log_table</code>.</li>
+      <li>Seed creates demo factories, admin user, and full process-ready sample data chain.</li>
+      <li>Seed also includes schema-drift-tolerant audit log behavior detection.</li>
+    </ul>
+
+    <div class="callout">
+      Seed depth is strong for demos and integration checks because it includes linked records across PO, planning, cutting, sewing, and QC rather than only master data.
+    </div>
+  </div>
+
+  <div class="page break">
+    <h2>5. Core Domain Workflows and Business Rules</h2>
+
+    <h3>5.1 Purchase order lifecycle correctness</h3>
+    <p><code>PurchaseOrdersService</code> enforces a strict transition model:</p>
+    <ul>
+      <li>Items can be added only while status is <code>DRAFT</code>.</li>
+      <li>Confirm requires at least one item.</li>
+      <li>Non-admin users can only move to the immediate next status.</li>
+      <li>Move to <code>SHIPPED</code> or <code>CLOSED</code> requires readiness checks:</li>
+      <li>all PO items have bundles</li>
+      <li>bundled quantity covers ordered quantity</li>
+      <li>every bundle has latest passing QC inspection</li>
+    </ul>
+
+    <h3>5.2 Planning constraints</h3>
+    <p><code>PlansService.assign</code> enforces:</p>
+    <ul>
+      <li>Assignment dates inside plan window.</li>
+      <li>Daily target dates inside assignment window and plan window.</li>
+      <li>No duplicate daily target dates in one assignment payload.</li>
+      <li>PO must be active production candidate (not draft, shipped, or closed).</li>
+      <li>Non-admin cannot reassign a PO item that already has an assignment.</li>
+      <li>Automatic transition of PO from <code>CONFIRMED</code> to <code>IN_PRODUCTION</code> inside transaction.</li>
+    </ul>
+
+    <h3>5.3 Inventory control</h3>
+    <ul>
+      <li><code>receive</code> requires <code>refType = GRN</code>.</li>
+      <li><code>issueToCutting</code> requires <code>refType = ISSUE_CUTTING</code>.</li>
+      <li>Issue path checks available stock before transaction write.</li>
+      <li>Writes audit log entries with metadata where table exists.</li>
+    </ul>
+
+    <h3>5.4 Cutting, sewing, and QC state progression</h3>
+    <ul>
+      <li>Cutting batch requires valid PO item in same factory.</li>
+      <li>Bundle code generation is deterministic and sequence-based per batch/factory.</li>
+      <li>Sewing output auto-updates bundle status to <code>SEWN</code> when cumulative output reaches bundle qty.</li>
+      <li>QC inspection updates bundle status to <code>QC_PASS</code> or <code>QC_FAIL</code>.</li>
+      <li>Passing QC rejects defect payload entries to preserve semantics.</li>
+    </ul>
+
+    <h3>5.5 Reporting</h3>
+    <ul>
+      <li><code>/reports/plan-vs-actual</code> merges plan targets with grouped sewing output by line for a date.</li>
+      <li><code>/qc/summary</code> computes pass rate, top defects, and DHU-style estimate for selected date.</li>
+    </ul>
+  </div>
+
+  <div class="page break">
+    <h2>6. Transaction and Consistency Patterns</h2>
+
+    <h3>6.1 Where transactions are used</h3>
+    <table>
+      <thead>
+        <tr><th>Service Method</th><th>Transaction Purpose</th><th>Consistency Benefit</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>styles.upsertBom</code></td>
+          <td>Upsert BOM header, replace BOM items atomically</td>
+          <td>No partial BOM replacement</td>
+        </tr>
+        <tr>
+          <td><code>styles.remove</code></td>
+          <td>Delete BOM items/header then style</td>
+          <td>No orphan BOM data</td>
+        </tr>
+        <tr>
+          <td><code>plans.assign</code></td>
+          <td>Optional PO status update + plan line + daily targets</td>
+          <td>Assignment and targets stay coherent</td>
+        </tr>
+        <tr>
+          <td><code>cutting.createBundles</code></td>
+          <td>Validate duplicates then bulk bundle creation</td>
+          <td>Prevents partial bundle generation collisions</td>
+        </tr>
+        <tr>
+          <td><code>inventory.receive / issue</code></td>
+          <td>Create txn + audit log</td>
+          <td>Ledger/audit coupling</td>
+        </tr>
+        <tr>
+          <td><code>sewing.createHourlyOutput</code></td>
+          <td>Write output and conditionally update bundle status</td>
+          <td>Bundle progress reflects output atomically</td>
+        </tr>
+        <tr>
+          <td><code>qc.inspect</code></td>
+          <td>Create inspection/defects and update bundle status</td>
+          <td>Inspection result and bundle state stay synced</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>6.2 Idempotency and duplicate handling notes</h3>
+    <ul>
+      <li>Uniqueness constraints backstop duplicate creation attempts.</li>
+      <li>Service-level conflict checks provide user-friendly errors before DB errors where possible.</li>
+      <li>Some state-changing endpoints are not idempotent by design (for example hourly output posting).</li>
+    </ul>
+
+    <h3>6.3 Observability posture</h3>
+    <ul>
+      <li>Health endpoint exists: <code>GET /api/health</code>.</li>
+      <li>Audit log table supports inventory traceability metadata.</li>
+      <li>Graceful shutdown hooks enabled at application bootstrap.</li>
+    </ul>
+
+    <div class="callout-warn">
+      Future maturity opportunity: structured request/response logging and correlation IDs would significantly improve production debugging and root-cause speed.
+    </div>
+  </div>
+
+  <div class="page break">
+    <h2>7. Route and API Surface Summary</h2>
+
+    <h3>7.1 Public and auth routes</h3>
+    <ul>
+      <li><code>GET /api</code></li>
+      <li><code>GET /api/health</code></li>
+      <li><code>POST /api/auth/login</code></li>
+      <li><code>POST /api/auth/logout</code></li>
+      <li><code>GET /api/auth/me</code></li>
+    </ul>
+
+    <h3>7.2 Factory-scoped route groups</h3>
+    <ul>
+      <li><code>/api/buyers</code> - list/create/update/delete</li>
+      <li><code>/api/materials</code> - list/create</li>
+      <li><code>/api/styles</code> - style CRUD + BOM upsert/get</li>
+      <li><code>/api/pos</code> - PO create, add-item, confirm, status, detail, material requirement</li>
+      <li><code>/api/inventory</code> - receive, issue-to-cutting, stock</li>
+      <li><code>/api/plans</code> - create, assign, detail</li>
+      <li><code>/api/reports</code> - plan-vs-actual</li>
+      <li><code>/api/cutting</code> - batch create, bundle create, batch detail, bundle list</li>
+      <li><code>/api/sewing</code> - hourly-output, line-status</li>
+      <li><code>/api/qc</code> - inspect, summary</li>
+    </ul>
+
+    <h3>7.3 Non-obvious wiring detail</h3>
+    <p>
+      Reports are currently provided through <code>PlansModule</code> (controller/service imported there) instead of a dedicated reports module. This works, but a dedicated <code>ReportsModule</code> would improve modular clarity.
+    </p>
+
+    <h2>8. Build, Test, and Quality Evidence</h2>
+
+    <h3>8.1 Build evidence</h3>
+    <p>Command: <code>pnpm build</code></p>
+    <p>
+      <span class="chip ok">Build passed</span>
+      <span class="chip ok">Prisma client generation passed</span>
+    </p>
+
+    <h3>8.2 Test evidence</h3>
+    <p>Command: <code>pnpm test</code></p>
+    <p>
+      <span class="chip ok">1/1 unit suite passed</span>
+      <span class="chip ok">1/1 tests passed</span>
+    </p>
+
+    <p>Command: <code>pnpm test:e2e</code></p>
+    <p>
+      <span class="chip bad">e2e failed</span>
+      <span class="chip warn">Missing required env in test context: JWT_SECRET and FRONTEND_URL</span>
+    </p>
+
+    <div class="callout">
+      This failure is useful signal: env schema validation is correctly strict, and test harness needs explicit test env provisioning.
+    </div>
+  </div>
+
+  <div class="page break">
+    <h2>9. Risks, Gaps, and Hardening Plan</h2>
+
+    <h3>9.1 Current strengths</h3>
+    <ul>
+      <li>Strong tenant isolation via global factory guard.</li>
+      <li>Meaningful business-rule enforcement in lifecycle transitions.</li>
+      <li>Good transactional boundaries across multi-step writes.</li>
+      <li>Clear DTO validation and consistent error signaling.</li>
+      <li>Practical seed data for realistic integration flow demonstration.</li>
+    </ul>
+
+    <h3>9.2 Current gaps</h3>
+    <ul>
+      <li>Role annotation policy is not actively applied at route level.</li>
+      <li>e2e setup is incomplete for env-dependent module bootstrap.</li>
+      <li>No structured request logging / tracing middleware.</li>
+      <li>Limited automated test breadth beyond starter unit test.</li>
+      <li>Cookie strategy is secure-first; local HTTP clients may rely on bearer fallback in dev.</li>
+    </ul>
+
+    <h3>9.3 Recommended next milestones</h3>
+    <ol>
+      <li>Introduce dedicated test env bootstrap for e2e (<code>.env.test</code> with required keys).</li>
+      <li>Add role policies with explicit <code>@Roles(...)</code> on sensitive write routes.</li>
+      <li>Expand test matrix: critical transitions (confirm -> in_production -> shipped -> closed) and inventory insufficiency scenarios.</li>
+      <li>Add centralized exception filter for normalized error envelopes.</li>
+      <li>Add structured logging with request id correlation and basic latency metrics.</li>
+      <li>Extract reports into dedicated module for cleaner boundaries.</li>
+    </ol>
+
+    <h2>10. Closing Assessment</h2>
+    <p>
+      The backend demonstrates strong practical engineering for operations software: explicit tenancy controls, domain-aware transition rules, and transactional consistency where it matters. The architecture is production-oriented and extensible.
+    </p>
+    <p>
+      To reach senior-level production maturity, the highest leverage next steps are test depth expansion, route-level role policy clarity, and observability instrumentation.
+    </p>
+
+    <p class="small muted">
+      End of report.
+    </p>
+  </div>
+</body>
+</html>
