@@ -195,9 +195,20 @@ export class PurchaseOrdersService {
       }
     }
 
+    if (dto.status === POStatus.SHIPPED) {
+      await this.validateCanMoveToShipped(factoryId, po);
+    }
+
+    if (dto.status === POStatus.CLOSED) {
+      await this.validateCanMoveToClosed(factoryId, po);
+    }
+
     return this.prisma.client.purchaseOrder.update({
       where: { id },
-      data: { status: dto.status },
+      data: {
+        status: dto.status,
+        ...(dto.status === POStatus.SHIPPED ? { shipDate: po.shipDate ?? new Date() } : {}),
+      },
       include: {
         buyer: true,
         items: {
@@ -286,6 +297,117 @@ export class PurchaseOrdersService {
         a.materialName.localeCompare(b.materialName),
       ),
     };
+  }
+
+  private async validateCanMoveToShipped(
+    factoryId: string,
+    po: { id: string; status: POStatus; items: Array<{ id: string; quantity: number }> },
+  ) {
+    if (po.status !== POStatus.IN_PRODUCTION) {
+      throw new BadRequestException(
+        'Purchase order can be moved to SHIPPED only from IN_PRODUCTION',
+      );
+    }
+
+    await this.validateProductionAndQcReadiness(factoryId, po);
+  }
+
+  private async validateCanMoveToClosed(
+    factoryId: string,
+    po: {
+      id: string;
+      status: POStatus;
+      shipDate: Date | null;
+      items: Array<{ id: string; quantity: number }>;
+    },
+  ) {
+    if (po.status !== POStatus.SHIPPED) {
+      throw new BadRequestException('Purchase order can be moved to CLOSED only from SHIPPED');
+    }
+
+    if (!po.shipDate) {
+      throw new BadRequestException('Cannot close purchase order without ship date');
+    }
+
+    await this.validateProductionAndQcReadiness(factoryId, po);
+  }
+
+  private async validateProductionAndQcReadiness(
+    factoryId: string,
+    po: { id: string; items: Array<{ id: string; quantity: number }> },
+  ) {
+    if (po.items.length === 0) {
+      throw new BadRequestException('Purchase order has no items');
+    }
+
+    const bundles = await this.prisma.client.bundle.findMany({
+      where: {
+        factoryId,
+        poItem: {
+          poId: po.id,
+        },
+      },
+      select: {
+        id: true,
+        poItemId: true,
+        qty: true,
+        inspections: {
+          select: {
+            pass: true,
+            createdAt: true,
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1,
+        },
+      },
+    });
+
+    if (bundles.length === 0) {
+      throw new BadRequestException('Cannot complete status transition without cutting bundles');
+    }
+
+    const bundledQtyByPoItemId = new Map<string, number>();
+    const bundledCountByPoItemId = new Map<string, number>();
+
+    for (const bundle of bundles) {
+      bundledQtyByPoItemId.set(
+        bundle.poItemId,
+        (bundledQtyByPoItemId.get(bundle.poItemId) ?? 0) + bundle.qty,
+      );
+      bundledCountByPoItemId.set(
+        bundle.poItemId,
+        (bundledCountByPoItemId.get(bundle.poItemId) ?? 0) + 1,
+      );
+
+      const latestInspection = bundle.inspections[0];
+      if (!latestInspection || !latestInspection.pass) {
+        throw new BadRequestException(
+          'All bundles must have a latest passing QC inspection before status transition',
+        );
+      }
+    }
+
+    const itemsMissingBundles = po.items.filter(
+      (item) => (bundledCountByPoItemId.get(item.id) ?? 0) === 0,
+    );
+
+    if (itemsMissingBundles.length > 0) {
+      throw new BadRequestException(
+        'Each PO item must have at least one bundle before status transition',
+      );
+    }
+
+    const itemsWithInsufficientBundledQty = po.items.filter(
+      (item) => (bundledQtyByPoItemId.get(item.id) ?? 0) < item.quantity,
+    );
+
+    if (itemsWithInsufficientBundledQty.length > 0) {
+      throw new BadRequestException(
+        'Bundled quantity must cover PO item quantity before status transition',
+      );
+    }
   }
 
   private async ensureBuyerExists(factoryId: string, buyerId: string) {

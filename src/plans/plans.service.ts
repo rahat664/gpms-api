@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { RoleName } from '@prisma/client';
+import { POStatus, RoleName } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import { PrismaService } from '../prisma/prisma.service';
 import { AssignPlanLineDto } from './dto/assign-plan-line.dto';
@@ -61,6 +61,14 @@ export class PlansService {
       throw new BadRequestException('poItemId does not belong to the provided poId');
     }
 
+    if (po.status === POStatus.DRAFT) {
+      throw new BadRequestException('Purchase order must be confirmed before line assignment');
+    }
+
+    if (po.status === POStatus.SHIPPED || po.status === POStatus.CLOSED) {
+      throw new BadRequestException('Cannot assign line for shipped or closed purchase orders');
+    }
+
     this.validateDailyTargets(dto, assignmentStartDate, assignmentEndDate, plan);
 
     if (user.role !== RoleName.ADMIN) {
@@ -79,6 +87,13 @@ export class PlansService {
     }
 
     return this.prisma.client.$transaction(async (tx) => {
+      if (po.status === POStatus.CONFIRMED) {
+        await tx.purchaseOrder.update({
+          where: { id: po.id },
+          data: { status: POStatus.IN_PRODUCTION },
+        });
+      }
+
       const planLine = await tx.planLine.create({
         data: {
           factoryId,
