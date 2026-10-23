@@ -82,11 +82,13 @@ pnpm deploy:start
 
 ## Seeded Demo Access
 
-`prisma/seed.ts` creates:
+For local development only, `prisma/seed.ts` creates demo accounts and data:
 
 - user: `admin@gpms.com`
 - password: `admin123`
 - factories: `F001` (primary), `F002` (secondary)
+
+The demo seed is explicitly blocked with `NODE_ENV=production`. Do not rely on known development login credentials in a public deployment.
 
 ## Authentication and Request Scope
 

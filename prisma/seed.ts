@@ -75,6 +75,10 @@ async function supportsAuditLog() {
 }
 
 async function main() {
+  // This script creates demo users and replaces demonstration data.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Demo seed is disabled in production.');
+  }
   const password = await bcrypt.hash("admin123", 10);
   const hasAuditLog = await supportsAuditLog();
   const today = startOfDay(0);
